@@ -8,8 +8,10 @@ import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.events.PacketEvent;
 import com.comphenix.protocol.events.PacketListener;
 import com.comphenix.protocol.injector.GamePhase;
+import com.comphenix.protocol.reflect.FuzzyReflection;
 import com.comphenix.protocol.reflect.StructureModifier;
 import com.comphenix.protocol.reflect.accessors.Accessors;
+import com.comphenix.protocol.reflect.accessors.FieldAccessor;
 import com.comphenix.protocol.reflect.accessors.MethodAccessor;
 import com.comphenix.protocol.utility.MinecraftReflection;
 import com.comphenix.protocol.utility.MinecraftVersion;
@@ -77,7 +79,8 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     private StructureModifier<Object> SCOREBOARD_TEAM_METADATA_MODIFIER = null;
     private final Class<?> ADVENTURE_COMPONENT_CLASS;
     private final Optional<Class<?>> NUMBER_FORMAT_CLASS;
-    private final Field PLAYER_ACTIVE_CONTAINER_FIELD;
+    private final FieldAccessor PLAYER_ACTIVE_CONTAINER_FIELD;
+    private final FieldAccessor PLAYER_INVENTORY_CONTAINER_FIELD;
     private final String MERCHANT_RECIPE_SPECIAL_PRICE_FIELD;
     private final String MERCHANT_RECIPE_DEMAND_FIELD;
     private final String SIGN_NBT_ID;
@@ -113,12 +116,10 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             CRAFT_MERCHANT_RECIPE_TO_MINECRAFT_METHOD = null;
         }
         if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
-            CONTAINER_PLAYER_CLASS = NMSUtils.getClass("net.minecraft.world.inventory.ContainerPlayer");
             BOSSBAR_UPDATE_TITLE_ACTION_CLASS = NMSUtils.getClass("net.minecraft.network.protocol.game.PacketPlayOutBoss$e");
             MERCHANT_RECIPE_SPECIAL_PRICE_FIELD = "g";
             MERCHANT_RECIPE_DEMAND_FIELD = "h";
         } else {
-            CONTAINER_PLAYER_CLASS = NMSUtils.getNMSClass("ContainerPlayer");
             BOSSBAR_UPDATE_TITLE_ACTION_CLASS = null;
             MERCHANT_RECIPE_SPECIAL_PRICE_FIELD = "specialPrice";
             MERCHANT_RECIPE_DEMAND_FIELD = "demand";
@@ -131,9 +132,31 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             SIGN_NBT_ID = "Sign";
         }
 
-        val containerClass = MinecraftReflection.getMinecraftClass("world.inventory.Container", "Container");
-        PLAYER_ACTIVE_CONTAINER_FIELD = Arrays.stream(MinecraftReflection.getEntityHumanClass().getDeclaredFields())
-                .filter(field -> field.getType() == containerClass && !field.getName().equals("defaultContainer")).findAny().orElse(null);
+        if (MinecraftVersion.v1_20_5.atOrAbove()) { // 1.20.5+
+            val fuzzyHuman = FuzzyReflection.fromClass(MinecraftReflection.getEntityHumanClass());
+            val abstractContainerMenuClass = MinecraftReflection.getMinecraftClass("world.inventory.AbstractContainerMenu");
+            // We have to use this field matcher because the function in accessors matches superclasses
+            PLAYER_ACTIVE_CONTAINER_FIELD = Accessors.getFieldAccessor(
+                    fuzzyHuman.getField((field, clazz) -> field.getType() == abstractContainerMenuClass)
+            );
+            val inventoryMenuClass = MinecraftReflection.getMinecraftClass("world.inventory.InventoryMenu");
+            PLAYER_INVENTORY_CONTAINER_FIELD = Accessors.getFieldAccessor(
+                    fuzzyHuman.getField((field, clazz) -> field.getType() == inventoryMenuClass)
+            );
+            CONTAINER_PLAYER_CLASS = null;
+
+            // Sanity check
+            assert PLAYER_ACTIVE_CONTAINER_FIELD.getField() != PLAYER_INVENTORY_CONTAINER_FIELD.getField();
+        } else {
+            val containerClass = MinecraftReflection.getMinecraftClass("world.inventory.Container", "Container");
+            val activeContainerField = Arrays.stream(MinecraftReflection.getEntityHumanClass().getDeclaredFields())
+                    .filter(field -> field.getType() == containerClass && !field.getName().equals("defaultContainer"))
+                    .findAny()
+                    .orElseThrow(() -> new RuntimeException("Failed to find field for player's active container"));
+            PLAYER_ACTIVE_CONTAINER_FIELD = Accessors.getFieldAccessor(activeContainerField);
+            PLAYER_INVENTORY_CONTAINER_FIELD = null;
+            CONTAINER_PLAYER_CLASS = MinecraftReflection.getMinecraftClass("world.inventory.ContainerPlayer", "ContainerPlayer");
+        }
 
         setupPacketHandlers();
     }
@@ -1011,10 +1034,10 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     private boolean isPlayerInventoryOpen(Player player) {
         val nmsHandle = NMSUtils.getHandle(player);
 
-        try {
-            return Objects.requireNonNull(PLAYER_ACTIVE_CONTAINER_FIELD).get(nmsHandle).getClass() == CONTAINER_PLAYER_CLASS;
-        } catch (IllegalAccessException | NullPointerException e) {
-            return false;
+        if (MinecraftVersion.v1_20_5.atOrAbove()) { // 1.20.5+
+            return PLAYER_ACTIVE_CONTAINER_FIELD.get(nmsHandle) == PLAYER_INVENTORY_CONTAINER_FIELD.get(nmsHandle);
+        } else {
+            return PLAYER_ACTIVE_CONTAINER_FIELD.get(nmsHandle).getClass() == CONTAINER_PLAYER_CLASS;
         }
     }
 
