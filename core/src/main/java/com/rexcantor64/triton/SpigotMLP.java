@@ -163,10 +163,12 @@ public class SpigotMLP extends Triton {
         }
 
         try {
-            MinecraftVersion ignore = MinecraftVersion.v1_20_4;
-        } catch (NoSuchFieldError ignore) {
-            // Triton requires ProtocolLib 5.2.0 or later
-            getLogger().logError("ProtocolLib 5.2.0 or later is required! Older versions of ProtocolLib will only partially work or not work at all, and are therefore not recommended.");
+            // Class known to exist in build 709 (commit 616431c)
+            Class.forName("com.comphenix.protocol.wrappers.WrappedTeamParameters");
+        } catch (ClassNotFoundException ignore) {
+            // Triton requires ProtocolLib 5.3.0 or later
+            getLogger().logError("ProtocolLib 5.3.0 or later is required! Older versions of ProtocolLib will only partially work or not work at all, and are therefore not recommended.");
+            getLogger().logError("It is likely that you need the latest dev version, which you can download at https://triton.rexcantor64.com/protocollib");
             getLogger().logError("If you want to enable the plugin anyway, add `i-know-what-i-am-doing: true` to Triton's config.yml.");
             return false;
         }
