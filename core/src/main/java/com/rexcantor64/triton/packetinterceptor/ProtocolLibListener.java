@@ -80,6 +80,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     private final Field PLAYER_ACTIVE_CONTAINER_FIELD;
     private final String MERCHANT_RECIPE_SPECIAL_PRICE_FIELD;
     private final String MERCHANT_RECIPE_DEMAND_FIELD;
+    private final String SIGN_NBT_ID;
 
     private final HandlerFunction ASYNC_PASSTHROUGH = asAsync((_packet, _player) -> {
     });
@@ -96,14 +97,14 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     public ProtocolLibListener(SpigotMLP main, HandlerFunction.HandlerType... allowedTypes) {
         this.main = main;
         this.allowedTypes = Arrays.asList(allowedTypes);
-        if (main.getMcVersion() >= 17) {
+        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
             MERCHANT_RECIPE_LIST_CLASS = NMSUtils.getClass("net.minecraft.world.item.trading.MerchantRecipeList");
-        } else if (main.getMcVersion() >= 14) {
+        } else if (MinecraftVersion.VILLAGE_UPDATE.atOrAbove()) { // 1.14+
             MERCHANT_RECIPE_LIST_CLASS = NMSUtils.getNMSClass("MerchantRecipeList");
         } else {
             MERCHANT_RECIPE_LIST_CLASS = null;
         }
-        if (main.getMcVersion() >= 14) {
+        if (MinecraftVersion.VILLAGE_UPDATE.atOrAbove()) { // 1.14+
             val craftMerchantRecipeClass = NMSUtils.getCraftbukkitClass("inventory.CraftMerchantRecipe");
             CRAFT_MERCHANT_RECIPE_FROM_BUKKIT_METHOD = Accessors.getMethodAccessor(craftMerchantRecipeClass, "fromBukkit", MerchantRecipe.class);
             CRAFT_MERCHANT_RECIPE_TO_MINECRAFT_METHOD = Accessors.getMethodAccessor(craftMerchantRecipeClass, "toMinecraft");
@@ -111,16 +112,24 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             CRAFT_MERCHANT_RECIPE_FROM_BUKKIT_METHOD = null;
             CRAFT_MERCHANT_RECIPE_TO_MINECRAFT_METHOD = null;
         }
-        CONTAINER_PLAYER_CLASS = main.getMcVersion() >= 17 ?
-                NMSUtils.getClass("net.minecraft.world.inventory.ContainerPlayer") :
-                NMSUtils.getNMSClass("ContainerPlayer");
-        BOSSBAR_UPDATE_TITLE_ACTION_CLASS = main.getMcVersion() >= 17 ? NMSUtils.getClass("net.minecraft.network.protocol.game.PacketPlayOutBoss$e") : null;
-
+        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
+            CONTAINER_PLAYER_CLASS = NMSUtils.getClass("net.minecraft.world.inventory.ContainerPlayer");
+            BOSSBAR_UPDATE_TITLE_ACTION_CLASS = NMSUtils.getClass("net.minecraft.network.protocol.game.PacketPlayOutBoss$e");
+            MERCHANT_RECIPE_SPECIAL_PRICE_FIELD = "g";
+            MERCHANT_RECIPE_DEMAND_FIELD = "h";
+        } else {
+            CONTAINER_PLAYER_CLASS = NMSUtils.getNMSClass("ContainerPlayer");
+            BOSSBAR_UPDATE_TITLE_ACTION_CLASS = null;
+            MERCHANT_RECIPE_SPECIAL_PRICE_FIELD = "specialPrice";
+            MERCHANT_RECIPE_DEMAND_FIELD = "demand";
+        }
         ADVENTURE_COMPONENT_CLASS = NMSUtils.getClassOrNull("net.kyori.adventure.text.Component");
         NUMBER_FORMAT_CLASS = MinecraftReflection.getOptionalNMS("network.chat.numbers.NumberFormat");
-
-        MERCHANT_RECIPE_SPECIAL_PRICE_FIELD = getMCVersion() >= 17 ? "g" : "specialPrice";
-        MERCHANT_RECIPE_DEMAND_FIELD = getMCVersion() >= 17 ? "h" : "demand";
+        if (MinecraftVersion.EXPLORATION_UPDATE.atOrAbove()) { // 1.11+
+            SIGN_NBT_ID = "minecraft:sign";
+        } else {
+            SIGN_NBT_ID = "Sign";
+        }
 
         val containerClass = MinecraftReflection.getMinecraftClass("world.inventory.Container", "Container");
         PLAYER_ACTIVE_CONTAINER_FIELD = Arrays.stream(MinecraftReflection.getEntityHumanClass().getDeclaredFields())
@@ -135,7 +144,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     }
 
     private void setupPacketHandlers() {
-        if (main.getMcVersion() >= 19) {
+        if (MinecraftVersion.WILD_UPDATE.atOrAbove()) { // 1.19+
             // New chat packets on 1.19
             packetHandlers.put(PacketType.Play.Server.SYSTEM_CHAT, asAsync(this::handleSystemChat));
             if (!MinecraftVersion.FEATURE_PREVIEW_UPDATE.atOrAbove()) {
@@ -146,7 +155,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         // In 1.19+, this packet is signed, but we can still edit it, since it might contain
         // formatting from chat plugins.
         packetHandlers.put(PacketType.Play.Server.CHAT, asAsync(this::handleChat));
-        if (main.getMcVersion() >= 17) {
+        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
             // Title packet split on 1.17
             packetHandlers.put(PacketType.Play.Server.SET_TITLE_TEXT, asAsync(this::handleTitle));
             packetHandlers.put(PacketType.Play.Server.SET_SUBTITLE_TEXT, asAsync(this::handleTitle));
@@ -160,7 +169,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         packetHandlers.put(PacketType.Play.Server.PLAYER_LIST_HEADER_FOOTER, asAsync(this::handlePlayerListHeaderFooter));
         packetHandlers.put(PacketType.Play.Server.OPEN_WINDOW, asAsync(this::handleOpenWindow));
         packetHandlers.put(PacketType.Play.Server.KICK_DISCONNECT, asSync(this::handleKickDisconnect));
-        if (main.getMcVersion() >= 13) {
+        if (MinecraftVersion.AQUATIC_UPDATE.atOrAbove()) { // 1.13+
             // Scoreboard rewrite on 1.13
             // It allows unlimited length team prefixes and suffixes
             packetHandlers.put(PacketType.Play.Server.SCOREBOARD_TEAM, asAsync(this::handleScoreboardTeam));
@@ -174,11 +183,11 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         }
         packetHandlers.put(PacketType.Play.Server.WINDOW_ITEMS, asAsync(this::handleWindowItems));
         packetHandlers.put(PacketType.Play.Server.SET_SLOT, asAsync(this::handleSetSlot));
-        if (getMCVersion() >= 9) {
+        if (MinecraftVersion.COMBAT_UPDATE.atOrAbove()) { // 1.9+
             // Bossbars were only added on MC 1.9
             packetHandlers.put(PacketType.Play.Server.BOSS, asAsync(this::handleBoss));
         }
-        if (getMCVersion() >= 14) {
+        if (MinecraftVersion.VILLAGE_UPDATE.atOrAbove()) { // 1.14+
             // Villager merchant interface redesign on 1.14
             packetHandlers.put(PacketType.Play.Server.OPEN_WINDOW_MERCHANT, asAsync(this::handleMerchantItems));
         }
@@ -497,7 +506,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
                         .parse(msg.getJson()));
         if (result == null)
             result = new BaseComponent[]{new TextComponent("")};
-        if (getMCVersion() >= 16) {
+        if (MinecraftVersion.NETHER_UPDATE.atOrAbove()) { // 1.16+
             msg.setJson(ComponentSerializer.toString(result));
         } else {
             msg.setJson(ComponentSerializer.toString(ComponentUtils.mergeComponents(result)));
@@ -523,16 +532,18 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         if (!main.getConf().isInventoryItems() && isPlayerInventoryOpen(packet.getPlayer()))
             return;
 
-        List<ItemStack> items = getMCVersion() <= 10 ?
-                Arrays.asList(packet.getPacket().getItemArrayModifier().readSafely(0)) :
-                packet.getPacket().getItemListModifier().readSafely(0);
-        for (ItemStack item : items) {
-            ItemStackTranslationUtils.translateItemStack(item, languagePlayer, true);
-        }
-        if (getMCVersion() <= 10) {
-            packet.getPacket().getItemArrayModifier().writeSafely(0, items.toArray(new ItemStack[0]));
-        } else {
+        if (MinecraftVersion.EXPLORATION_UPDATE.atOrAbove()) { // 1.11+
+            List<ItemStack> items = packet.getPacket().getItemListModifier().readSafely(0);
+            for (ItemStack item : items) {
+                ItemStackTranslationUtils.translateItemStack(item, languagePlayer, true);
+            }
             packet.getPacket().getItemListModifier().writeSafely(0, items);
+        } else {
+            ItemStack[] items = packet.getPacket().getItemArrayModifier().readSafely(0);
+            for (ItemStack item : items) {
+                ItemStackTranslationUtils.translateItemStack(item, languagePlayer, true);
+            }
+            packet.getPacket().getItemArrayModifier().writeSafely(0, items);
         }
     }
 
@@ -555,7 +566,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         WrappedChatComponent bossbar;
         Object actionObj = null;
 
-        if (getMCVersion() >= 17) {
+        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
             actionObj = packet.getPacket().getModifier().readSafely(1);
             val method = actionObj.getClass().getMethod("a");
             method.setAccessible(true);
@@ -586,7 +597,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             if (result == null)
                 result = new BaseComponent[]{new TranslatableComponent("")};
             bossbar.setJson(ComponentSerializer.toString(result));
-            if (getMCVersion() >= 17) {
+            if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
                 NMSUtils.setDeclaredField(actionObj, "a", bossbar.getHandle());
             } else {
                 packet.getPacket().getChatComponents().writeSafely(0, bossbar);
@@ -651,7 +662,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         WrappedChatComponent displayName, prefix, suffix;
         StructureModifier<WrappedChatComponent> chatComponents;
 
-        if (getMCVersion() >= 17) {
+        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
             Optional<?> meta = (Optional<?>) modifiers.readSafely(3);
             if (!meta.isPresent()) return;
 
@@ -846,14 +857,18 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     @Override
     @SneakyThrows
     public void refreshBossbar(SpigotLanguagePlayer player, UUID uuid, String json) {
-        if (getMCVersion() <= 8) return;
+        if (!MinecraftVersion.COMBAT_UPDATE.atOrAbove()) {
+            // bossbar only works on 1.9+
+            return;
+        }
+
         val bukkitPlayerOpt = player.toBukkit();
         if (!bukkitPlayerOpt.isPresent()) return;
         val bukkitPlayer = bukkitPlayerOpt.get();
 
         PacketContainer packet = ProtocolLibrary.getProtocolManager().createPacket(PacketType.Play.Server.BOSS);
         packet.getUUIDs().writeSafely(0, uuid);
-        if (getMCVersion() >= 17) {
+        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
             val msg = WrappedChatComponent.fromJson(json);
             val constructor = BOSSBAR_UPDATE_TITLE_ACTION_CLASS.getDeclaredConstructor(msg.getHandleType());
             constructor.setAccessible(true);
@@ -890,7 +905,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
                     .createPacket(PacketType.Play.Server.SCOREBOARD_TEAM);
             packet.getIntegers().writeSafely(0, 2); // Update team info mode
             packet.getStrings().writeSafely(0, key);
-            if (getMCVersion() >= 17) {
+            if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) {
                 Optional<?> meta = (Optional<?>) packet.getModifier().readSafely(3);
                 if (!meta.isPresent()) {
                     Triton.get().getLogger().logError("Triton was not able to refresh a scoreboard team, probably due to changes in ProtocolLib!");
@@ -941,7 +956,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         if (!(state instanceof Sign))
             return;
         String[] lines = ((Sign) state).getLines();
-        if (existsSignUpdatePacket()) {
+        if (MinecraftReflection.signUpdateExists()) {
             PacketContainer container =
                     ProtocolLibrary.getProtocolManager().createPacket(PacketType.Play.Server.UPDATE_SIGN, true);
             container.getBlockPositionModifier().writeSafely(0, new BlockPosition(location.getX(), location.getY(),
@@ -964,8 +979,11 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             NbtCompound nbt = NbtFactory.asCompound(container.getNbtModifier().readSafely(0));
             for (int i = 0; i < 4; i++)
                 nbt.put("Text" + (i + 1), ComponentSerializer.toString(TextComponent.fromLegacyText(lines[i])));
-            nbt.put("name", "null").put("x", block.getX()).put("y", block.getY()).put("z", block.getZ()).put("id",
-                    getMCVersion() <= 10 ? "Sign" : "minecraft:sign");
+            nbt.put("name", "null")
+                    .put("x", block.getX())
+                    .put("y", block.getY())
+                    .put("z", block.getZ())
+                    .put("id", SIGN_NBT_ID);
             try {
                 ProtocolLibrary.getProtocolManager().sendServerPacket(p, container, false);
             } catch (Exception e) {
@@ -977,29 +995,17 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     /* UTILITIES */
 
     private boolean isActionbar(PacketContainer container) {
-        if (getMCVersion() >= 19) {
+        if (MinecraftVersion.WILD_UPDATE.atOrAbove()) { // 1.19+
             val booleans = container.getBooleans();
             if (booleans.size() > 0) {
                 return booleans.readSafely(0);
             }
             return container.getIntegers().readSafely(0) == 2;
-        } else if (getMCVersion() >= 12) {
+        } else if (MinecraftVersion.COLOR_UPDATE.atOrAbove()) { // 1.12+
             return container.getChatTypes().readSafely(0) == EnumWrappers.ChatType.GAME_INFO;
         } else {
             return container.getBytes().readSafely(0) == 2;
         }
-    }
-
-    private short getMCVersion() {
-        return main.getMcVersion();
-    }
-
-    private short getMCVersionR() {
-        return main.getMinorMcVersion();
-    }
-
-    private boolean existsSignUpdatePacket() {
-        return getMCVersion() == 8 || (getMCVersion() == 9 && getMCVersionR() == 1);
     }
 
     private boolean isPlayerInventoryOpen(Player player) {

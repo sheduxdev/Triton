@@ -40,10 +40,6 @@ import java.util.concurrent.ExecutionException;
 
 public class SpigotMLP extends Triton {
 
-    @Getter
-    private final short mcVersion;
-    @Getter
-    private final short minorMcVersion;
     private ProtocolLibListener protocolLibListener;
     private SpigotBridgeManager bridgeManager;
     @Getter
@@ -55,9 +51,6 @@ public class SpigotMLP extends Triton {
     private int refreshTaskId = -1;
 
     public SpigotMLP(PluginLoader loader) {
-        val versionSplit = Bukkit.getServer().getClass().getPackage().getName().split("_");
-        mcVersion = Short.parseShort(versionSplit[1]);
-        minorMcVersion = Short.parseShort(versionSplit[2].substring(1));
         super.loader = loader;
     }
 

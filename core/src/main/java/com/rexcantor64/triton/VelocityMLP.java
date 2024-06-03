@@ -100,14 +100,4 @@ public class VelocityMLP extends Triton {
             return null;
         }
     }
-
-    @Override
-    public short getMcVersion() {
-        return 0;
-    }
-
-    @Override
-    public short getMinorMcVersion() {
-        return 0;
-    }
 }
