@@ -54,10 +54,13 @@ public class AdvancementsPacketHandler extends PacketHandler {
         }
         val advancementDataPlayerClass = MinecraftReflection.getMinecraftClass("server.PlayerAdvancements", "server.AdvancementDataPlayer", "AdvancementDataPlayer");
         ENTITY_PLAYER_ADVANCEMENT_DATA_PLAYER_FIELD = Accessors.getFieldAccessor(MinecraftReflection.getEntityPlayerClass(), advancementDataPlayerClass, true);
-        ADVANCEMENT_DATA_PLAYER_REFRESH_METHOD = Accessors.getMethodAccessor(advancementDataPlayerClass, "flushDirty", MinecraftReflection.getEntityPlayerClass());
+        ADVANCEMENT_DATA_PLAYER_REFRESH_METHOD = Accessors.getMethodAccessor(
+                FuzzyReflection.fromClass(advancementDataPlayerClass)
+                        .getMethodByReturnTypeAndParameters("flushDirty", void.class, MinecraftReflection.getEntityPlayerClass())
+        );
 
         val advancementDataWorldClass = MinecraftReflection.getMinecraftClass("server.ServerAdvancementManager", "server.AdvancementDataWorld", "AdvancementDataWorld");
-        CRAFT_SERVER_GET_SERVER_METHOD = Accessors.getMethodAccessor(MinecraftReflection.getCraftBukkitClass("CraftServer"), "getServer");
+        CRAFT_SERVER_GET_SERVER_METHOD = Accessors.getMethodAccessor(MinecraftReflection.getCraftServer(), "getServer");
         MINECRAFT_SERVER_GET_ADVANCEMENT_DATA_METHOD = Accessors.getMethodAccessor(
                 FuzzyReflection.fromClass(MinecraftReflection.getMinecraftServerClass())
                         .getMethodByReturnTypeAndParameters("getAdvancements", advancementDataWorldClass)
@@ -66,7 +69,10 @@ public class AdvancementsPacketHandler extends PacketHandler {
         if (MinecraftVersion.NETHER_UPDATE.atOrAbove()) { // 1.16+
             // MC 1.16+
             // Loading of achievements requires an AdvancementDataWorld method
-            ADVANCEMENT_DATA_PLAYER_LOAD_FROM_ADVANCEMENT_DATA_WORLD_METHOD = Accessors.getMethodAccessor(advancementDataPlayerClass, "reload", advancementDataWorldClass);
+            ADVANCEMENT_DATA_PLAYER_LOAD_FROM_ADVANCEMENT_DATA_WORLD_METHOD = Accessors.getMethodAccessor(
+                    FuzzyReflection.fromClass(advancementDataPlayerClass)
+                            .getMethodByReturnTypeAndParameters("reload", void.class, advancementDataWorldClass)
+            );
         } else {
             // MC 1.12-1.15
             // Loading of achievements only needs the method to be called without any parameters
