@@ -734,7 +734,7 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             val parameters = WrappedTeamParameters.newBuilder()
                     .displayName(displayName)
                     .prefix(prefix)
-                    .suffix(prefix)
+                    .suffix(suffix)
                     .nametagVisibility(team.getNameTagVisibility())
                     .collisionRule(team.getCollisionRule())
                     .color(team.getColor())
