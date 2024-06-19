@@ -175,8 +175,12 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
 
             // New actionbar packet
             packetHandlers.put(PacketType.Play.Server.SET_ACTION_BAR_TEXT, asAsync(this::handleActionbar));
+
+            // Combat packet split on 1.17
+            packetHandlers.put(PacketType.Play.Server.PLAYER_COMBAT_KILL, asAsync(this::handleDeathScreen));
         } else {
             packetHandlers.put(PacketType.Play.Server.TITLE, asAsync(this::handleTitle));
+            packetHandlers.put(PacketType.Play.Server.COMBAT_EVENT, asAsync(this::handleDeathScreen));
         }
 
         packetHandlers.put(PacketType.Play.Server.PLAYER_LIST_HEADER_FOOTER, asAsync(this::handlePlayerListHeaderFooter));
@@ -714,6 +718,29 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         if (result == null) result = new BaseComponent[]{new TextComponent("")};
         displayName.setJson(ComponentSerializer.toString(result));
         packet.getPacket().getChatComponents().writeSafely(0, displayName);
+    }
+
+    private void handleDeathScreen(PacketEvent packet, SpigotLanguagePlayer languagePlayer) {
+        if (!main.getConf().isDeathScreen()) return;
+
+        val component = packet.getPacket().getChatComponents().readSafely(0);
+        if (component == null) {
+            // Likely it's MC 1.16 or below and type of packet is not ENTITY_DIED.
+            // Alternatively, this will always be null on 1.8.8 since it uses a String, but there's nothing interesting to translate anyway.
+            return;
+        }
+
+        BaseComponent[] result = main.getLanguageParser().parseComponent(
+                languagePlayer,
+                main.getConf().getDeathScreenSyntax(),
+                ComponentSerializer.parse(component.getJson())
+        );
+        if (result == null) {
+            result = new BaseComponent[]{new TextComponent("")};
+        }
+        component.setJson(ComponentSerializer.toString(result));
+
+        packet.getPacket().getChatComponents().writeSafely(0, component);
     }
 
     /* PROTOCOL LIB */
