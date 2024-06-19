@@ -26,6 +26,7 @@ import com.rexcantor64.triton.SpigotMLP;
 import com.rexcantor64.triton.Triton;
 import com.rexcantor64.triton.language.item.SignLocation;
 import com.rexcantor64.triton.packetinterceptor.protocollib.AdvancementsPacketHandler;
+import com.rexcantor64.triton.packetinterceptor.protocollib.BossBarPacketHandler;
 import com.rexcantor64.triton.packetinterceptor.protocollib.EntitiesPacketHandler;
 import com.rexcantor64.triton.packetinterceptor.protocollib.HandlerFunction;
 import com.rexcantor64.triton.packetinterceptor.protocollib.SignPacketHandler;
@@ -36,11 +37,9 @@ import com.rexcantor64.triton.utils.NMSUtils;
 import com.rexcantor64.triton.wrappers.AdventureComponentWrapper;
 import com.rexcantor64.triton.wrappers.WrappedClientConfiguration;
 import com.rexcantor64.triton.wrappers.WrappedPlayerChatMessage;
-import lombok.SneakyThrows;
 import lombok.val;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.TextComponent;
-import net.md_5.bungee.api.chat.TranslatableComponent;
 import net.md_5.bungee.chat.ComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
@@ -84,9 +83,10 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     private final HandlerFunction ASYNC_PASSTHROUGH = asAsync((_packet, _player) -> {
     });
 
-    private final SignPacketHandler signPacketHandler = new SignPacketHandler();
     private final AdvancementsPacketHandler advancementsPacketHandler = AdvancementsPacketHandler.newInstance();
+    private final BossBarPacketHandler bossBarPacketHandler = new BossBarPacketHandler();
     private final EntitiesPacketHandler entitiesPacketHandler = new EntitiesPacketHandler();
+    private final SignPacketHandler signPacketHandler = new SignPacketHandler();
 
     private final SpigotMLP main;
     private final List<HandlerFunction.HandlerType> allowedTypes;
@@ -202,22 +202,18 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         }
         packetHandlers.put(PacketType.Play.Server.WINDOW_ITEMS, asAsync(this::handleWindowItems));
         packetHandlers.put(PacketType.Play.Server.SET_SLOT, asAsync(this::handleSetSlot));
-        if (MinecraftVersion.COMBAT_UPDATE.atOrAbove()) { // 1.9+
-            // Bossbars were only added on MC 1.9
-            packetHandlers.put(PacketType.Play.Server.BOSS, asAsync(this::handleBoss));
-        }
         if (MinecraftVersion.VILLAGE_UPDATE.atOrAbove()) { // 1.14+
             // Villager merchant interface redesign on 1.14
             packetHandlers.put(PacketType.Play.Server.OPEN_WINDOW_MERCHANT, asAsync(this::handleMerchantItems));
         }
 
-
         // External Packet Handlers
-        signPacketHandler.registerPacketTypes(packetHandlers);
         if (advancementsPacketHandler != null) {
             advancementsPacketHandler.registerPacketTypes(packetHandlers);
         }
+        bossBarPacketHandler.registerPacketTypes(packetHandlers);
         entitiesPacketHandler.registerPacketTypes(packetHandlers);
+        signPacketHandler.registerPacketTypes(packetHandlers);
     }
 
     /* PACKET HANDLERS */
@@ -583,58 +579,6 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         packet.getPacket().getItemModifier().writeSafely(0, item);
     }
 
-    @SneakyThrows
-    private void handleBoss(PacketEvent packet, SpigotLanguagePlayer languagePlayer) {
-        if (!main.getConf().isBossbars()) return;
-
-        val uuid = packet.getPacket().getUUIDs().readSafely(0);
-        WrappedChatComponent bossbar;
-        Object actionObj = null;
-
-        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
-            actionObj = packet.getPacket().getModifier().readSafely(1);
-            val method = actionObj.getClass().getMethod("a");
-            method.setAccessible(true);
-            val actionEnum = ((Enum<?>) method.invoke(actionObj)).ordinal();
-            if (actionEnum == 1) {
-                languagePlayer.removeBossbar(uuid);
-                return;
-            }
-            if (actionEnum != 0 && actionEnum != 3) return;
-
-            bossbar = WrappedChatComponent.fromHandle(NMSUtils.getDeclaredField(actionObj, "a"));
-        } else {
-            Action action = packet.getPacket().getEnumModifier(Action.class, 1).readSafely(0);
-            if (action == Action.REMOVE) {
-                languagePlayer.removeBossbar(uuid);
-                return;
-            }
-            if (action != Action.ADD && action != Action.UPDATE_NAME) return;
-
-            bossbar = packet.getPacket().getChatComponents().readSafely(0);
-        }
-
-
-        try {
-            languagePlayer.setBossbar(uuid, bossbar.getJson());
-            BaseComponent[] result = main.getLanguageParser().parseComponent(languagePlayer,
-                    main.getConf().getBossbarSyntax(), ComponentSerializer.parse(bossbar.getJson()));
-            if (result == null)
-                result = new BaseComponent[]{new TranslatableComponent("")};
-            bossbar.setJson(ComponentSerializer.toString(result));
-            if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
-                NMSUtils.setDeclaredField(actionObj, "a", bossbar.getHandle());
-            } else {
-                packet.getPacket().getChatComponents().writeSafely(0, bossbar);
-            }
-        } catch (RuntimeException e) {
-            // Catch 1.16 Hover 'contents' not being parsed correctly
-            // Has been fixed in newer versions of Spigot 1.16
-            Triton.get().getLogger()
-                    .logError(e, "Could not parse a bossbar, so it was ignored. Bossbar: %1", bossbar.getJson());
-        }
-    }
-
     @SuppressWarnings({"unchecked"})
     private void handleMerchantItems(PacketEvent packet, SpigotLanguagePlayer languagePlayer) {
         if (!main.getConf().isItems()) return;
@@ -905,30 +849,8 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     }
 
     @Override
-    @SneakyThrows
-    public void refreshBossbar(SpigotLanguagePlayer player, UUID uuid, String json) {
-        if (!MinecraftVersion.COMBAT_UPDATE.atOrAbove()) {
-            // bossbar only works on 1.9+
-            return;
-        }
-
-        val bukkitPlayerOpt = player.toBukkit();
-        if (!bukkitPlayerOpt.isPresent()) return;
-        val bukkitPlayer = bukkitPlayerOpt.get();
-
-        PacketContainer packet = ProtocolLibrary.getProtocolManager().createPacket(PacketType.Play.Server.BOSS);
-        packet.getUUIDs().writeSafely(0, uuid);
-        if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
-            val msg = WrappedChatComponent.fromJson(json);
-            val constructor = BOSSBAR_UPDATE_TITLE_ACTION_CLASS.getDeclaredConstructor(msg.getHandleType());
-            constructor.setAccessible(true);
-            val action = constructor.newInstance(msg.getHandle());
-            packet.getModifier().writeSafely(1, action);
-        } else {
-            packet.getEnumModifier(Action.class, 1).writeSafely(0, Action.UPDATE_NAME);
-            packet.getChatComponents().writeSafely(0, WrappedChatComponent.fromJson(json));
-        }
-        ProtocolLibrary.getProtocolManager().sendServerPacket(bukkitPlayer, packet, true);
+    public void refreshBossbar(SpigotLanguagePlayer player, UUID uuid, String text) {
+        bossBarPacketHandler.refreshBossbar(player, uuid, text);
     }
 
     @Override
@@ -1058,13 +980,6 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         } else {
             return PLAYER_ACTIVE_CONTAINER_FIELD.get(nmsHandle).getClass() == CONTAINER_PLAYER_CLASS;
         }
-    }
-
-    /**
-     * BossBar packet Action wrapper
-     */
-    public enum Action {
-        ADD, REMOVE, UPDATE_PCT, UPDATE_NAME, UPDATE_STYLE, UPDATE_PROPERTIES
     }
 
 }
