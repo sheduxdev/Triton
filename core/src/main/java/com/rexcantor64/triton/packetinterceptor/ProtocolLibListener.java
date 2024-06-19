@@ -70,7 +70,6 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     private final Class<?> MERCHANT_RECIPE_LIST_CLASS;
     private final MethodAccessor CRAFT_MERCHANT_RECIPE_FROM_BUKKIT_METHOD;
     private final MethodAccessor CRAFT_MERCHANT_RECIPE_TO_MINECRAFT_METHOD;
-    private final Class<?> BOSSBAR_UPDATE_TITLE_ACTION_CLASS;
     private final Class<BaseComponent[]> BASE_COMPONENT_ARRAY_CLASS = BaseComponent[].class;
     private final Class<?> ADVENTURE_COMPONENT_CLASS;
     private final Optional<Class<?>> NUMBER_FORMAT_CLASS;
@@ -112,11 +111,9 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             CRAFT_MERCHANT_RECIPE_TO_MINECRAFT_METHOD = null;
         }
         if (MinecraftVersion.CAVES_CLIFFS_1.atOrAbove()) { // 1.17+
-            BOSSBAR_UPDATE_TITLE_ACTION_CLASS = NMSUtils.getClass("net.minecraft.network.protocol.game.PacketPlayOutBoss$e");
             MERCHANT_RECIPE_SPECIAL_PRICE_FIELD = "g";
             MERCHANT_RECIPE_DEMAND_FIELD = "h";
         } else {
-            BOSSBAR_UPDATE_TITLE_ACTION_CLASS = null;
             MERCHANT_RECIPE_SPECIAL_PRICE_FIELD = "specialPrice";
             MERCHANT_RECIPE_DEMAND_FIELD = "demand";
         }
