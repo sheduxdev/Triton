@@ -16,8 +16,10 @@ import com.comphenix.protocol.reflect.accessors.MethodAccessor;
 import com.comphenix.protocol.utility.MinecraftReflection;
 import com.comphenix.protocol.utility.MinecraftVersion;
 import com.comphenix.protocol.wrappers.BlockPosition;
+import com.comphenix.protocol.wrappers.BukkitConverters;
 import com.comphenix.protocol.wrappers.EnumWrappers;
 import com.comphenix.protocol.wrappers.WrappedChatComponent;
+import com.comphenix.protocol.wrappers.WrappedNumberFormat;
 import com.comphenix.protocol.wrappers.WrappedTeamParameters;
 import com.comphenix.protocol.wrappers.nbt.NbtCompound;
 import com.comphenix.protocol.wrappers.nbt.NbtFactory;
@@ -72,7 +74,6 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     private final MethodAccessor CRAFT_MERCHANT_RECIPE_TO_MINECRAFT_METHOD;
     private final Class<BaseComponent[]> BASE_COMPONENT_ARRAY_CLASS = BaseComponent[].class;
     private final Class<?> ADVENTURE_COMPONENT_CLASS;
-    private final Optional<Class<?>> NUMBER_FORMAT_CLASS;
     private final FieldAccessor PLAYER_ACTIVE_CONTAINER_FIELD;
     private final FieldAccessor PLAYER_INVENTORY_CONTAINER_FIELD;
     private final String MERCHANT_RECIPE_SPECIAL_PRICE_FIELD;
@@ -118,7 +119,6 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             MERCHANT_RECIPE_DEMAND_FIELD = "demand";
         }
         ADVENTURE_COMPONENT_CLASS = NMSUtils.getClassOrNull("net.kyori.adventure.text.Component");
-        NUMBER_FORMAT_CLASS = MinecraftReflection.getOptionalNMS("network.chat.numbers.NumberFormat");
         if (MinecraftVersion.EXPLORATION_UPDATE.atOrAbove()) { // 1.11+
             SIGN_NBT_ID = "minecraft:sign";
         } else {
@@ -698,19 +698,30 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         val objectiveName = packet.getPacket().getStrings().readSafely(0);
         val mode = packet.getPacket().getIntegers().readSafely(0);
 
-        if (mode == 1) {
+        if (mode == 1) { // Mode 1 is REMOVE
             languagePlayer.removeScoreboardObjective(objectiveName);
             return;
         }
         // There are only 3 modes, so no need to check for more modes
 
-        val healthDisplay = packet.getPacket().getModifier().readSafely(2);
-        val displayName = packet.getPacket().getChatComponents().readSafely(0);
-        val numberFormat = NUMBER_FORMAT_CLASS
-                .map(numberFormatClass -> packet.getPacket().getSpecificModifier(numberFormatClass).readSafely(0))
-                .orElse(null);
+        val chatComponentsModifier = packet.getPacket().getChatComponents();
 
-        languagePlayer.setScoreboardObjective(objectiveName, displayName.getJson(), healthDisplay, numberFormat);
+        val displayName = chatComponentsModifier.readSafely(0);
+        val renderType = packet.getPacket().getRenderTypes().readSafely(0);
+        WrappedNumberFormat numberFormat = null;
+        if (WrappedNumberFormat.isSupported()) {
+            if (MinecraftVersion.v1_20_5.atOrAbove()) {
+                // on MC 1.20.5+ this field became an Optional
+                numberFormat = packet.getPacket()
+                        .getOptionals(BukkitConverters.getWrappedNumberFormatConverter())
+                        .readSafely(0)
+                        .orElse(null);
+            } else {
+                numberFormat = packet.getPacket().getNumberFormats().readSafely(0);
+            }
+        }
+
+        languagePlayer.setScoreboardObjective(objectiveName, displayName.getJson(), renderType, numberFormat);
 
         BaseComponent[] result = main.getLanguageParser()
                 .parseComponent(languagePlayer, main.getConf().getScoreboardSyntax(), ComponentSerializer
@@ -886,10 +897,16 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             packet.getIntegers().writeSafely(0, 2); // Update display name mode
             packet.getStrings().writeSafely(0, key);
             packet.getChatComponents().writeSafely(0, WrappedChatComponent.fromJson(value.getChatJson()));
-            packet.getModifier().writeSafely(2, value.getType());
-            NUMBER_FORMAT_CLASS.ifPresent(numberFormatClass ->
-                    packet.getSpecificModifier((Class<Object>) numberFormatClass)
-                            .writeSafely(0, value.getNumberFormat()));
+            packet.getRenderTypes().writeSafely(0, value.getType());
+            if (WrappedNumberFormat.isSupported()) {
+                if (MinecraftVersion.v1_20_5.atOrAbove()) {
+                    // on MC 1.20.5+ this field became an Optional
+                    packet.getOptionals(BukkitConverters.getWrappedNumberFormatConverter())
+                            .writeSafely(0, Optional.ofNullable(value.getNumberFormat()));
+                } else {
+                    packet.getNumberFormats().writeSafely(0, value.getNumberFormat());
+                }
+            }
             ProtocolLibrary.getProtocolManager().sendServerPacket(bukkitPlayer, packet, true);
         });
 
