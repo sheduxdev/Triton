@@ -218,7 +218,6 @@ public class LegacyParser implements MessageParser {
                     }
                     list.add(componentBuilder.build());
                     componentBuilder = Component.text();
-                    // TODO check if this works if style changes inside the children
                     componentBuilder.style(currentStyle);
                 } else if (c == TRANSLATABLE_DELIM) {
                     i++;
@@ -226,6 +225,7 @@ public class LegacyParser implements MessageParser {
                         // ignore key (still here for backwards compatibility)
                         i++;
                     }
+                    i++;
                     val uuid = new StringBuilder();
                     while (text.charAt(i) != TRANSLATABLE_DELIM) {
                         uuid.append(text.charAt(i));
