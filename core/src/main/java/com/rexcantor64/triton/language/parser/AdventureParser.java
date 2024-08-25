@@ -55,7 +55,7 @@ public class AdventureParser implements MessageParser {
      * @see MessageParser#translateString(String, Localized, FeatureSyntax)
      */
     @Override
-    public @NotNull TranslationResult<String> translateString(String text, Localized language, FeatureSyntax syntax) {
+    public @NotNull TranslationResult<String> translateString(@NotNull String text, @NotNull Localized language, @NotNull FeatureSyntax syntax) {
         return translateComponent(
                 ComponentUtils.deserializeFromLegacy(text),
                 language,
@@ -81,8 +81,8 @@ public class AdventureParser implements MessageParser {
      * @since 4.0.0
      */
     @Override
-    public @NotNull TranslationResult<Component> translateComponent(Component component, Localized language, FeatureSyntax syntax) {
-        TranslationConfiguration configuration = new TranslationConfiguration(
+    public @NotNull TranslationResult<Component> translateComponent(@NotNull Component component, @NotNull Localized language, @NotNull FeatureSyntax syntax) {
+        val configuration = new TranslationConfiguration<Component>(
                 syntax,
                 Triton.get().getConfig().getDisabledLine(),
                 // TODO properly integrate this
@@ -102,7 +102,7 @@ public class AdventureParser implements MessageParser {
      * @since 4.0.0
      */
     @VisibleForTesting
-    TranslationResult<Component> translateComponent(Component component, TranslationConfiguration configuration) {
+    TranslationResult<Component> translateComponent(@NotNull Component component, @NotNull TranslationConfiguration<Component> configuration) {
         String plainText = componentToString(component);
 
         if (ComponentUtils.hasLegacyFormatting(plainText)) {
@@ -112,7 +112,7 @@ public class AdventureParser implements MessageParser {
 
         val indexes = this.getPatternIndexArray(plainText, configuration.getFeatureSyntax().getLang());
 
-        if (indexes.size() == 0) {
+        if (indexes.isEmpty()) {
             return handleNonContentText(component, configuration);
         }
 
@@ -165,7 +165,7 @@ public class AdventureParser implements MessageParser {
      * @return The translation of this placeholder. Empty optional if the translation is "disabled line".
      * @since 4.0.0
      */
-    private Optional<Component> handlePlaceholder(Component placeholder, TranslationConfiguration configuration) {
+    private Optional<Component> handlePlaceholder(Component placeholder, TranslationConfiguration<Component> configuration) {
         Style defaultStyle = getStyleOfFirstCharacterOrEmpty(placeholder);
         placeholder = stripStyleOfFirstCharacter(placeholder);
 
@@ -228,7 +228,7 @@ public class AdventureParser implements MessageParser {
      * @since 4.0.0
      */
     @SuppressWarnings("unchecked")
-    private TranslationResult<Component> handleNonContentText(Component component, TranslationConfiguration configuration) {
+    private TranslationResult<Component> handleNonContentText(Component component, TranslationConfiguration<Component> configuration) {
         boolean changed = false;
         HoverEvent<?> hoverEvent = component.hoverEvent();
         if (hoverEvent != null) {
@@ -536,7 +536,7 @@ public class AdventureParser implements MessageParser {
      * @since 4.0.0
      */
     private List<Component> flushAccumulator(List<Component> accumulator, List<Component> splits) {
-        if (accumulator.size() == 0) {
+        if (accumulator.isEmpty()) {
             return accumulator;
         }
 

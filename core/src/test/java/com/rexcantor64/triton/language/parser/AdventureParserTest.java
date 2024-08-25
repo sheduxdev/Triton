@@ -76,7 +76,7 @@ public class AdventureParserTest {
         return Component.text("unknown placeholder");
     };
 
-    private final TranslationConfiguration configuration = new TranslationConfiguration(
+    private final TranslationConfiguration<Component> configuration = new TranslationConfiguration<>(
             defaultSyntax,
             "disabled.line",
             (key, args) -> parser.replaceArguments(messageResolver.apply(key), Arrays.asList(args))

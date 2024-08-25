@@ -1,10 +1,14 @@
 package com.rexcantor64.triton.language.parser;
 
+import com.rexcantor64.triton.Triton;
 import com.rexcantor64.triton.api.config.FeatureSyntax;
 import com.rexcantor64.triton.api.language.Localized;
 import com.rexcantor64.triton.api.language.MessageParser;
 import com.rexcantor64.triton.api.language.TranslationResult;
+import com.rexcantor64.triton.utils.ComponentUtils;
+import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.val;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
@@ -20,6 +24,8 @@ import net.kyori.adventure.text.format.Style;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.format.TextFormat;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import net.kyori.adventure.text.serializer.legacy.CharacterAndFormat;
 import net.kyori.adventure.text.serializer.legacy.Reset;
 import org.intellij.lang.annotations.Subst;
@@ -32,6 +38,10 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+
+import static com.rexcantor64.triton.language.TranslationManager.JSON_TYPE_TAG;
+import static com.rexcantor64.triton.language.TranslationManager.MINIMESSAGE_TYPE_TAG;
 
 /**
  * A message parser that has the same behaviour as the "AdvancedComponent" parser on Triton v3 and below.
@@ -50,18 +60,127 @@ public class LegacyParser implements MessageParser {
     private static final char FONT_MID_DELIM = FONT_START_DELIM + 2;
     private static final char FONT_END_DELIM = FONT_START_DELIM + 1;
 
+    private static final char AMPERSAND_CHAR = '&';
     private static final char SECTION_CHAR = '§';
     private static final char HEX_PREFIX = '#';
     private static final char HEX_CODE = 'x';
+    private static final String VALID_COLOR_CODES = "0123456789AaBbCcDdEeFfKkLlMmNnOoRrXx";
 
+    /**
+     * @see MessageParser#translateString(String, Localized, FeatureSyntax)
+     * @since 4.0.0
+     */
     @Override
-    public @NotNull TranslationResult<String> translateString(String text, Localized language, FeatureSyntax syntax) {
+    public @NotNull TranslationResult<String> translateString(@NotNull String text, @NotNull Localized language, @NotNull FeatureSyntax syntax) {
+        Triton.get().getDumpManager().dump(Component.text(text), language, syntax);
+
+        return translateComponent(
+                new SerializedComponent(text),
+                language,
+                syntax
+        )
+                .map(SerializedComponent::toComponent)
+                .map(ComponentUtils::serializeToLegacy);
+    }
+
+    /**
+     * @see MessageParser#translateComponent(Component, Localized, FeatureSyntax)
+     * @since 4.0.0
+     */
+    @Override
+    public @NotNull TranslationResult<Component> translateComponent(@NotNull Component component, @NotNull Localized language, @NotNull FeatureSyntax syntax) {
+        Triton.get().getDumpManager().dump(component, language, syntax);
+
+        return translateComponent(
+                new SerializedComponent(component),
+                language,
+                syntax
+        ).map(SerializedComponent::toComponent);
+    }
+
+    private @NotNull TranslationResult<SerializedComponent> translateComponent(
+            @NotNull SerializedComponent component,
+            @NotNull Localized language,
+            @NotNull FeatureSyntax syntax
+    ) {
+        val configuration = new TranslationConfiguration<SerializedComponent>(
+                syntax,
+                Triton.get().getConfig().getDisabledLine(),
+                (key, arguments) -> Triton.get().getTranslationManager().getTextString(language, key)
+                        .map(text -> this.handleTranslationType(text, language))
+                        .map(comp -> replaceArguments(comp, arguments))
+                        .orElseGet(() -> {
+                            val notFoundComponent = new SerializedComponent(Triton.get().getTranslationManager().getTranslationNotFoundComponent());
+                            val argsConcatenation = Arrays.stream(arguments).map(SerializedComponent::getText).collect(Collectors.joining(", "));
+                            val argsContatenationComp = new SerializedComponent("[" + argsConcatenation + "]");
+                            for (SerializedComponent argument : arguments) {
+                                argsContatenationComp.importFromComponent(argument);
+                            }
+
+                            return replaceArguments(notFoundComponent, new SerializedComponent(key), argsContatenationComp);
+                        })
+        );
+
+        return translateComponent(component, configuration);
+    }
+
+    @VisibleForTesting
+    @NotNull
+    TranslationResult<SerializedComponent> translateComponent(
+            @NotNull SerializedComponent component,
+            @NotNull TranslationConfiguration<SerializedComponent> configuration
+    ) {
+        // TODO!
         return null;
     }
 
-    @Override
-    public @NotNull TranslationResult<Component> translateComponent(Component component, Localized language, FeatureSyntax syntax) {
-        return null;
+    public @NotNull String replaceArguments(@NotNull String text, @Nullable String @NotNull [] arguments) {
+        for (int i = arguments.length - 1; i >= 0; --i) {
+            text = text.replace("%" + (i + 1), String.valueOf(arguments[i]));
+        }
+        return text;
+    }
+
+    private @NotNull SerializedComponent replaceArguments(@NotNull SerializedComponent comp, @NotNull SerializedComponent @NotNull ... arguments) {
+        // Replace args in text
+        String[] args = Arrays.stream(arguments).map(SerializedComponent::getText).toArray(String[]::new);
+        comp.setText(replaceArguments(comp.getText(), args));
+
+        // Merge non-text parts (click, hover, etc.)
+        for (SerializedComponent argument : arguments) {
+            comp.importFromComponent(argument);
+        }
+        return comp;
+    }
+
+    private @NotNull SerializedComponent handleTranslationType(@NotNull String message, @NotNull Localized language) {
+        // TODO make minimsg the default (?)
+        if (message.startsWith(MINIMESSAGE_TYPE_TAG)) {
+            MiniMessage miniMessage = Triton.get().getTranslationManager().getMiniMessageInstanceForLanguage(language.getLanguage());
+            return new SerializedComponent(miniMessage.deserialize(message.substring(MINIMESSAGE_TYPE_TAG.length())));
+        } else if (message.startsWith(JSON_TYPE_TAG)) {
+            return new SerializedComponent(GsonComponentSerializer.gson().deserialize(message.substring(JSON_TYPE_TAG.length())));
+        } else {
+            return new SerializedComponent(translateAlternateColorCodes(message));
+        }
+    }
+
+    /**
+     * Convert color codes with ampersand (&) into section characters (§).
+     * The character is only converted if followed by a valid color code.
+     * Inspired by md5's ChatColor#translateAlternateColorCodes.
+     *
+     * @param text The text to convert the color code characters from.
+     * @return The input text with the color codes replaced.
+     */
+    private String translateAlternateColorCodes(String text) {
+        char[] chars = text.toCharArray();
+        for (int i = 0; i < chars.length - 1; i++) {
+            if (chars[i] == AMPERSAND_CHAR && VALID_COLOR_CODES.indexOf(chars[i + 1]) != -1) {
+                chars[i] = SECTION_CHAR;
+            }
+        }
+        return new String(chars);
     }
 
     /**
@@ -90,12 +209,17 @@ public class LegacyParser implements MessageParser {
         @Getter
         private final HashMap<UUID, HoverEvent<?>> hoverEvents = new HashMap<>();
         @Getter
+        @Setter(AccessLevel.PRIVATE)
         private String text;
 
         public SerializedComponent(Component component) {
             val flattenerListener = new CursedFlattenerListener();
             FLATTENER.flatten(component, flattenerListener);
             this.text = flattenerListener.toString();
+        }
+
+        public SerializedComponent(String legacyText) {
+            this.text = legacyText;
         }
 
         /**
@@ -271,6 +395,19 @@ public class LegacyParser implements MessageParser {
                 list.add(componentBuilder.build());
             }
             return list;
+        }
+
+        /**
+         * Import non-text parts (click, hover, translatable) from the given commponent
+         * into this component.
+         * Useful for merging components while preserving their non-text parts.
+         *
+         * @param other The component to import non-text parts from.
+         */
+        public void importFromComponent(SerializedComponent other) {
+            this.clickEvents.putAll(other.getClickEvents());
+            this.hoverEvents.putAll(other.getHoverEvents());
+            this.translatableComponents.putAll(other.getTranslatableComponents());
         }
 
         /**
