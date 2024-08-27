@@ -4,8 +4,8 @@ import com.rexcantor64.triton.Triton;
 import com.rexcantor64.triton.api.config.FeatureSyntax;
 import com.rexcantor64.triton.api.language.Localized;
 import com.rexcantor64.triton.api.language.MessageParser;
-import com.rexcantor64.triton.api.language.TranslationResult;
 import com.rexcantor64.triton.utils.ComponentUtils;
+import com.rexcantor64.triton.utils.ParserUtils;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -130,8 +131,78 @@ public class LegacyParser implements MessageParser {
             @NotNull SerializedComponent component,
             @NotNull TranslationConfiguration<SerializedComponent> configuration
     ) {
-        // TODO!
-        return null;
+        String text = component.getText();
+        val indexes = ParserUtils.getPatternIndexArray(text, configuration.getFeatureSyntax().getLang());
+
+        if (indexes.isEmpty()) {
+            // TODO handle non text components
+            return TranslationResult.unchanged();
+        }
+
+        val builder = new StringBuilder();
+        // keep track of last index added to the string builder
+        int lastCharacter = 0;
+
+        for (val index : indexes) {
+            builder.append(text, lastCharacter, index[0]);
+            lastCharacter = index[1];
+
+            val placeholder = text.substring(index[2], index[3]);
+
+            val resultComponent = handlePlaceholder(placeholder, configuration);
+            if (!resultComponent.isPresent()) {
+                return TranslationResult.remove();
+            }
+
+            builder.append(resultComponent.get().getText());
+            component.importFromComponent(resultComponent.get());
+        }
+
+        builder.append(text, lastCharacter, text.length());
+        component.setText(builder.toString());
+
+        // TODO handle non text components
+
+        return TranslationResult.changed(component);
+    }
+
+    /**
+     * An auxiliary method to {@link LegacyParser#translateComponent(SerializedComponent, TranslationConfiguration)}
+     * that handles translating the component inside the <code>[lang][/lang]</code> tags.
+     * The <code>[args][/args]</code> tags are optional since Triton v4.0.0.
+     * <p>
+     * This method gets the translation for the key and replaces its arguments, if any.
+     *
+     * @param placeholder   The text inside the <code>[lang][/lang]</code> tags.
+     * @param configuration The settings to apply to this translation.
+     * @return The translation of this placeholder. Empty optional if the translation is "disabled line".
+     * @since 4.0.0
+     */
+    private @NotNull Optional<SerializedComponent> handlePlaceholder(
+            @NotNull String placeholder,
+            @NotNull TranslationConfiguration<SerializedComponent> configuration
+    ) {
+        val indexes = ParserUtils.getPatternIndexArray(placeholder, configuration.getFeatureSyntax().getArg());
+
+        SerializedComponent[] arguments = indexes.stream()
+                .map(index -> placeholder.substring(index[2], index[3]))
+                .map(SerializedComponent::new)
+                .toArray(SerializedComponent[]::new);
+
+        String key = placeholder;
+        if (!indexes.isEmpty()) {
+            key = key.substring(0, indexes.get(0)[0]);
+        }
+        key = ParserUtils.normalizeTranslationKey(key, configuration);
+
+        val result = configuration.translationSupplier.apply(key, arguments);
+
+        TranslationResult<SerializedComponent> translationResult = translateComponent(result, configuration);
+        if (translationResult.getState() == TranslationResult.ResultState.TO_REMOVE) {
+            return Optional.empty();
+        }
+
+        return Optional.of(translationResult.getResult().orElse(result));
     }
 
     public @NotNull String replaceArguments(@NotNull String text, @Nullable String @NotNull [] arguments) {

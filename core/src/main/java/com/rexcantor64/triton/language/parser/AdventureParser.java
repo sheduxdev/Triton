@@ -5,6 +5,7 @@ import com.rexcantor64.triton.api.config.FeatureSyntax;
 import com.rexcantor64.triton.api.language.Localized;
 import com.rexcantor64.triton.api.language.MessageParser;
 import com.rexcantor64.triton.utils.ComponentUtils;
+import com.rexcantor64.triton.utils.ParserUtils;
 import com.rexcantor64.triton.utils.StringUtils;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -110,7 +111,7 @@ public class AdventureParser implements MessageParser {
             plainText = componentToString(component);
         }
 
-        val indexes = this.getPatternIndexArray(plainText, configuration.getFeatureSyntax().getLang());
+        val indexes = ParserUtils.getPatternIndexArray(plainText, configuration.getFeatureSyntax().getLang());
 
         if (indexes.isEmpty()) {
             return handleNonContentText(component, configuration);
@@ -170,7 +171,7 @@ public class AdventureParser implements MessageParser {
         placeholder = stripStyleOfFirstCharacter(placeholder);
 
         String placeholderStr = componentToString(placeholder);
-        val indexes = this.getPatternIndexArray(placeholderStr, configuration.getFeatureSyntax().getArg());
+        val indexes = ParserUtils.getPatternIndexArray(placeholderStr, configuration.getFeatureSyntax().getArg());
         Queue<Integer> indexesToSplitAt = indexes.stream()
                 .flatMap(Arrays::stream)
                 .sorted()
@@ -186,10 +187,7 @@ public class AdventureParser implements MessageParser {
             Component part = splitComponents.get(i);
             if (i == 0) {
                 key = PlainTextComponentSerializer.plainText().serialize(part);
-                // The [args] tag is optional since v4.0.0, so strip it if it's present
-                if (key.endsWith("[" + configuration.getFeatureSyntax().getArgs() + "]")) {
-                    key = key.substring(0, key.length() - configuration.getFeatureSyntax().getArgs().length() - 2);
-                }
+                key = ParserUtils.normalizeTranslationKey(key, configuration);
                 if (!StringUtils.isEmptyOrNull(configuration.getDisabledLine()) && configuration.getDisabledLine()
                         .equals(key)) {
                     return Optional.empty();
@@ -352,7 +350,8 @@ public class AdventureParser implements MessageParser {
      */
     @VisibleForTesting
     @Contract("_ -> new")
-    @NotNull Component stripStyleOfFirstCharacter(@NotNull Component component) {
+    @NotNull
+    Component stripStyleOfFirstCharacter(@NotNull Component component) {
         if (component instanceof TextComponent) {
             TextComponent textComponent = (TextComponent) component;
             if (!textComponent.content().isEmpty()) {
@@ -582,51 +581,6 @@ public class AdventureParser implements MessageParser {
             }
         }
         return accumulator;
-    }
-
-    /**
-     * Find the indexes of all root "[pattern][/pattern]" tags in the given string.
-     * <p>
-     * Only the root tags are included, that is, nested tags are ignored.
-     * For example, <code>[pattern][pattern][/pattern][/pattern]</code> would only
-     * return the indexes for the outer tags.
-     * <p>
-     * Each array in the returned list corresponds to a different set of opening and closing tags,
-     * and has size 4.
-     * Indexes have the following meaning:
-     * <ul>
-     *     <li>0: the first character of the opening tag</li>
-     *     <li>1: the character after the last character of the closing tag</li>
-     *     <li>2: the character after the last character of the opening tag</li>
-     *     <li>3: the first character of the closing tag</li>
-     * </ul>
-     *
-     * @param input   The string to search for opening and closing tags.
-     * @param pattern The tags to search for (i.e. "lang" will search for "[lang]" and "[/lang]").
-     * @return A list of indexes of all the found tags, as specified by the method description.
-     */
-    public List<Integer[]> getPatternIndexArray(String input, String pattern) {
-        List<Integer[]> result = new ArrayList<>();
-        int start = -1;
-        int openedAmount = 0;
-
-        for (int i = 0; i < input.length(); i++) {
-            char currentChar = input.charAt(i);
-            if (currentChar == '[' && input.length() > i + pattern.length() + 1 && input.substring(i + 1,
-                    i + 2 + pattern.length()).equals(pattern + "]")) {
-                if (start == -1) start = i;
-                openedAmount++;
-                i += 1 + pattern.length();
-            } else if (currentChar == '[' && input.length() > i + pattern.length() + 2 && input.substring(i + 1,
-                    i + 3 + pattern.length()).equals("/" + pattern + "]")) {
-                openedAmount--;
-                if (openedAmount == 0) {
-                    result.add(new Integer[]{start, i + 3 + pattern.length(), start + pattern.length() + 2, i});
-                    start = -1;
-                }
-            }
-        }
-        return result;
     }
 
     /**

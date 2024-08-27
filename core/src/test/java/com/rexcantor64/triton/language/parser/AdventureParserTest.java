@@ -1183,23 +1183,6 @@ public class AdventureParserTest {
     }
 
     @Test
-    public void testGetPatternIndexArray() {
-        String input = "Lorem ipsum [tag]dolor [tag]sit[/tag] amet[/tag], [tag2]consectetur[/tag2] [tag]adipiscing elit[/tag]. Nullam posuere.";
-
-        List<Integer[]> result = parser.getPatternIndexArray(input, "tag");
-
-        List<Integer[]> expected = Arrays.asList(
-                new Integer[]{12, 48, 17, 42},
-                new Integer[]{75, 101, 80, 95}
-        );
-
-        assertEquals(expected.size(), result.size());
-        for (int i = 0; i < expected.size(); i++) {
-            assertArrayEquals(expected.get(i), result.get(i));
-        }
-    }
-
-    @Test
     public void testGetStyleOfFirstStyle() {
         Component comp = Component.text()
                 .append(
