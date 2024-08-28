@@ -1,5 +1,8 @@
 package com.rexcantor64.triton.language.parser;
 
+import com.rexcantor64.triton.api.config.FeatureSyntax;
+import com.rexcantor64.triton.language.parser.LegacyParser.SerializedComponent;
+import com.rexcantor64.triton.utils.DefaultFeatureSyntax;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -11,10 +14,43 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class LegacyParserTest {
+    private final LegacyParser parser = new LegacyParser();
+    private final FeatureSyntax defaultSyntax = new DefaultFeatureSyntax();
+
+    private final Function<String, SerializedComponent> messageResolver = (key) -> {
+        switch (key) {
+            case "without.formatting":
+                return new SerializedComponent("This is text without formatting");
+            case "without.formatting.with.args":
+                return new SerializedComponent("This is text without formatting but with arguments (%1)");
+            case "with.colors":
+                return new SerializedComponent("§aThis text is green");
+            case "with.colors.two.args":
+                return new SerializedComponent("§dThis text is pink and has two arguments (%1 and %2)");
+            case "with.colors.repeated.args":
+                return new SerializedComponent("§dThis text is pink and has three arguments (%1 and %2 and %1)");
+            case "nested":
+                return new SerializedComponent("some text [lang]without.formatting[/lang]");
+            case "with.placeholder.colors":
+                return new SerializedComponent("§d%1 §ais a very cool guy");
+            case "change.colors.on.args":
+                return new SerializedComponent("§cSome text §9%1 more text");
+        }
+        return new SerializedComponent("unknown placeholder");
+    };
+
+    private final TranslationConfiguration<SerializedComponent> configuration = new TranslationConfiguration<>(
+            defaultSyntax,
+            "disabled.line",
+            (key, args) -> parser.replaceArguments(messageResolver.apply(key), args)
+    );
+
     private final Component ALL_IN_ONE_COMPONENT = Component.text("Lorem ")
             .append(
                     Component.text("ipsum dolor ")
@@ -51,7 +87,7 @@ public class LegacyParserTest {
 
     @Test
     public void testSerializingComponent() {
-        LegacyParser.SerializedComponent serializedComponent = new LegacyParser.SerializedComponent(ALL_IN_ONE_COMPONENT);
+        SerializedComponent serializedComponent = new SerializedComponent(ALL_IN_ONE_COMPONENT);
 
         assertEquals(1, serializedComponent.getClickEvents().size());
         assertEquals(1, serializedComponent.getHoverEvents().size());
@@ -70,7 +106,7 @@ public class LegacyParserTest {
 
     @Test
     public void testSerializeDeserializeComponent() {
-        Component result = new LegacyParser.SerializedComponent(ALL_IN_ONE_COMPONENT).toComponent();
+        Component result = new SerializedComponent(ALL_IN_ONE_COMPONENT).toComponent();
 
         // slightly modify input to equivalent component, due to behaviour of the deserializer
         List<Component> expectedChildren = new ArrayList<>(ALL_IN_ONE_COMPONENT.children());
@@ -88,5 +124,111 @@ public class LegacyParserTest {
                 );
 
         assertEquals(expected.compact(), result.compact());
+    }
+
+    @Test
+    public void testStripFormatting() {
+        Component component = Component.text()
+                .content("abc")
+                .append(
+                        Component.text()
+                                .content("def")
+                                .color(NamedTextColor.AQUA)
+                )
+                .append(Component.text("ghi"))
+                .color(NamedTextColor.GOLD)
+                .clickEvent(ClickEvent.copyToClipboard("Lorem Ipsum"))
+                .hoverEvent(HoverEvent.showText(Component.text("Lorem Ipsum")))
+                .build();
+
+        SerializedComponent serializedComponent = new SerializedComponent(component);
+
+        String result = parser.stripFormatting(serializedComponent.getText());
+
+        assertEquals("abcdefghi", result);
+    }
+
+    @Test
+    public void testTranslateComponentWithoutPlaceholders() {
+        SerializedComponent comp = new SerializedComponent("Text without any placeholders whatsoever");
+
+        TranslationResult<SerializedComponent> result = parser.translateComponent(comp, configuration);
+
+        assertEquals(TranslationResult.ResultState.UNCHANGED, result.getState());
+    }
+
+    @Test
+    public void testParseComponentWithoutFormatting() {
+        SerializedComponent comp = new SerializedComponent("Text [lang]without.formatting[/lang] more text");
+
+        TranslationResult<Component> result = parser.translateComponent(comp, configuration)
+                .map(SerializedComponent::toComponent);
+
+        Component expected = Component.text("Text This is text without formatting more text");
+
+        assertEquals(TranslationResult.ResultState.CHANGED, result.getState());
+        assertNotNull(result.getResultRaw());
+        assertEquals(expected.compact(), result.getResultRaw().compact());
+    }
+
+    @Test
+    public void testParseComponentStripFormattingFromKey() {
+        SerializedComponent comp = new SerializedComponent("Text [lang]with§bout.formatting[/lang] more text");
+
+        TranslationResult<Component> result = parser.translateComponent(comp, configuration)
+                .map(SerializedComponent::toComponent);
+
+        Component expected = Component.text("Text This is text without formatting more text");
+
+        assertEquals(TranslationResult.ResultState.CHANGED, result.getState());
+        assertNotNull(result.getResultRaw());
+        assertEquals(expected.compact(), result.getResultRaw().compact());
+    }
+
+    @Test
+    public void testParseComponentStyleSpillFromPlaceholder() {
+        SerializedComponent comp = new SerializedComponent("Text [lang]with.colors[/lang] lorem ipsum [lang]without.formatting[/lang] more text");
+
+        TranslationResult<Component> result = parser.translateComponent(comp, configuration)
+                .map(SerializedComponent::toComponent);
+
+        Component expected = Component.text()
+                .content("Text ")
+                .append(
+                        Component.text()
+                                .content("This text is green lorem ipsum This is text without formatting more text")
+                                .color(NamedTextColor.GREEN)
+                )
+                .build();
+
+        assertEquals(TranslationResult.ResultState.CHANGED, result.getState());
+        assertNotNull(result.getResultRaw());
+        assertEquals(expected.compact(), result.getResultRaw().compact());
+    }
+
+    @Test
+    public void testParseComponentStyleSpillFromArgument() {
+        SerializedComponent comp = new SerializedComponent("Text §4[lang]without.formatting.with.args[args][arg]§agreen text[/arg][/args][/lang] more text");
+
+        TranslationResult<Component> result = parser.translateComponent(comp, configuration)
+                .map(SerializedComponent::toComponent);
+
+        Component expected = Component.text()
+                .content("Text ")
+                .append(
+                        Component.text()
+                                .content("This is text without formatting but with arguments (")
+                                .color(NamedTextColor.DARK_RED)
+                )
+                .append(
+                        Component.text()
+                                .content("green text) more text")
+                                .color(NamedTextColor.GREEN)
+                )
+                .build();
+
+        assertEquals(TranslationResult.ResultState.CHANGED, result.getState());
+        assertNotNull(result.getResultRaw());
+        assertEquals(expected.compact(), result.getResultRaw().compact());
     }
 }

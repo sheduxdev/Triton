@@ -29,6 +29,7 @@ import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import net.kyori.adventure.text.serializer.legacy.CharacterAndFormat;
 import net.kyori.adventure.text.serializer.legacy.Reset;
 import org.intellij.lang.annotations.Subst;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -39,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.rexcantor64.triton.language.TranslationManager.JSON_TYPE_TAG;
@@ -66,6 +68,10 @@ public class LegacyParser implements MessageParser {
     private static final char HEX_PREFIX = '#';
     private static final char HEX_CODE = 'x';
     private static final String VALID_COLOR_CODES = "0123456789AaBbCcDdEeFfKkLlMmNnOoRrXx";
+    private static final Pattern FORMATTING_STRIP_PATTERN = Pattern.compile(
+            CLICK_DELIM + "\\d[\\w-]{36}|" + HOVER_DELIM + "[\\w-]{36}|" + CLICK_END_DELIM + "|" + HOVER_END_DELIM
+                    + "|" + SECTION_CHAR + "[0-9A-Fa-fK-Ok-oRrXx]"
+    );
 
     /**
      * @see MessageParser#translateString(String, Localized, FeatureSyntax)
@@ -194,6 +200,7 @@ public class LegacyParser implements MessageParser {
             key = key.substring(0, indexes.get(0)[0]);
         }
         key = ParserUtils.normalizeTranslationKey(key, configuration);
+        key = stripFormatting(key);
 
         val result = configuration.translationSupplier.apply(key, arguments);
 
@@ -212,7 +219,9 @@ public class LegacyParser implements MessageParser {
         return text;
     }
 
-    private @NotNull SerializedComponent replaceArguments(@NotNull SerializedComponent comp, @NotNull SerializedComponent @NotNull ... arguments) {
+    @VisibleForTesting
+    @NotNull
+    SerializedComponent replaceArguments(@NotNull SerializedComponent comp, @NotNull SerializedComponent @NotNull ... arguments) {
         // Replace args in text
         String[] args = Arrays.stream(arguments).map(SerializedComponent::getText).toArray(String[]::new);
         comp.setText(replaceArguments(comp.getText(), args));
@@ -244,7 +253,12 @@ public class LegacyParser implements MessageParser {
      * @param text The text to convert the color code characters from.
      * @return The input text with the color codes replaced.
      */
-    private String translateAlternateColorCodes(String text) {
+    @Contract("null -> null; !null -> !null")
+    private @Nullable String translateAlternateColorCodes(@Nullable String text) {
+        if (text == null) {
+            return null;
+        }
+
         char[] chars = text.toCharArray();
         for (int i = 0; i < chars.length - 1; i++) {
             if (chars[i] == AMPERSAND_CHAR && VALID_COLOR_CODES.indexOf(chars[i + 1]) != -1) {
@@ -252,6 +266,23 @@ public class LegacyParser implements MessageParser {
             }
         }
         return new String(chars);
+    }
+
+    /**
+     * Remove color code and click/hover event formatting in the text of {@link SerializedComponent}.
+     *
+     * @param text The text to remove the formatting from.
+     * @return The text without the associated formatting.
+     */
+    @Contract("null -> null; !null -> !null")
+    @VisibleForTesting
+    @Nullable
+    String stripFormatting(@Nullable String text) {
+        if (text == null) {
+            return null;
+        }
+
+        return FORMATTING_STRIP_PATTERN.matcher(text).replaceAll("");
     }
 
     /**
