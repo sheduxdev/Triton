@@ -38,6 +38,7 @@ import com.rexcantor64.triton.utils.NMSUtils;
 import com.rexcantor64.triton.wrappers.AdventureComponentWrapper;
 import com.rexcantor64.triton.wrappers.WrappedClientConfiguration;
 import com.rexcantor64.triton.wrappers.WrappedPlayerChatMessage;
+import lombok.Getter;
 import lombok.val;
 import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.TextComponent;
@@ -86,6 +87,11 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
     private final List<HandlerFunction.HandlerType> allowedTypes;
     private final Map<PacketType, HandlerFunction> packetHandlers = new HashMap<>();
     private final AtomicBoolean firstRun = new AtomicBoolean(true);
+
+    @Getter
+    private ListeningWhitelist sendingWhitelist;
+    @Getter
+    private ListeningWhitelist receivingWhitelist;
 
     public ProtocolLibListener(SpigotMLP main, HandlerFunction.HandlerType... allowedTypes) {
         this.main = main;
@@ -186,6 +192,38 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
         bossBarPacketHandler.registerPacketTypes(packetHandlers);
         entitiesPacketHandler.registerPacketTypes(packetHandlers);
         signPacketHandler.registerPacketTypes(packetHandlers);
+
+        setupListenerWhitelists();
+    }
+
+    private void setupListenerWhitelists() {
+        val sendingTypes = packetHandlers.entrySet().stream()
+                .filter(entry -> this.allowedTypes.contains(entry.getValue().getHandlerType()))
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+        sendingWhitelist = ListeningWhitelist.newBuilder()
+                .gamePhase(GamePhase.PLAYING)
+                .types(sendingTypes)
+                .mergeOptions(ListenerOptions.ASYNC)
+                .highest()
+                .build();
+
+        val receivingTypes = new ArrayList<PacketType>();
+        if (this.allowedTypes.contains(HandlerFunction.HandlerType.SYNC)) {
+            // only listen for these packets in the sync handler
+            receivingTypes.add(PacketType.Play.Client.SETTINGS);
+            if (MinecraftVersion.CONFIG_PHASE_PROTOCOL_UPDATE.atOrAbove()) { // MC 1.20.2
+                receivingTypes.add(PacketType.Configuration.Client.CLIENT_INFORMATION);
+            }
+        }
+
+        receivingWhitelist = ListeningWhitelist.newBuilder()
+                .gamePhase(GamePhase.PLAYING)
+                .types(receivingTypes)
+                .mergeOptions(ListenerOptions.ASYNC)
+                .highest()
+                .build();
     }
 
     /* PACKET HANDLERS */
@@ -800,40 +838,6 @@ public class ProtocolLibListener implements PacketListener, PacketInterceptor {
             val language = main.getLanguageManager().getLanguageByLocale(locale, true);
             Bukkit.getScheduler().runTaskLater(main.getLoader(), () -> languagePlayer.setLang(language), 2L);
         }
-    }
-
-    @Override
-    public ListeningWhitelist getSendingWhitelist() {
-        val types = packetHandlers.entrySet().stream()
-                .filter(entry -> this.allowedTypes.contains(entry.getValue().getHandlerType()))
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
-
-        return ListeningWhitelist.newBuilder()
-                .gamePhase(GamePhase.PLAYING)
-                .types(types)
-                .mergeOptions(ListenerOptions.ASYNC)
-                .highest()
-                .build();
-    }
-
-    @Override
-    public ListeningWhitelist getReceivingWhitelist() {
-        val types = new ArrayList<PacketType>();
-        if (this.allowedTypes.contains(HandlerFunction.HandlerType.SYNC)) {
-            // only listen for these packets in the sync handler
-            types.add(PacketType.Play.Client.SETTINGS);
-            if (MinecraftVersion.CONFIG_PHASE_PROTOCOL_UPDATE.atOrAbove()) { // MC 1.20.2
-                types.add(PacketType.Configuration.Client.CLIENT_INFORMATION);
-            }
-        }
-
-        return ListeningWhitelist.newBuilder()
-                .gamePhase(GamePhase.PLAYING)
-                .types(types)
-                .mergeOptions(ListenerOptions.ASYNC)
-                .highest()
-                .build();
     }
 
     /* REFRESH */
