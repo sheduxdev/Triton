@@ -22,7 +22,7 @@ import java.util.stream.IntStream;
 
 public class ComponentUtils {
 
-    public final static char SECTION_CHAR = '§';
+    public final static char SECTION_CHAR = '\u00A7';
     private final static LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection()
             .toBuilder()
             .hexColors()
